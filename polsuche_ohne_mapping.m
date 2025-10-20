@@ -71,7 +71,7 @@ end
 % Cauchysch (Numerische Version)
 function pol_vorhanden = Cauchysch(f, Startbereich, p)
     if p <= 3; Toleranz = 1e-16; else; Toleranz = 1e-3; end
-    pol_vorhanden = false;
+    pol_vorhanden = false; 
     num_points = 1000; % Anzahl der Punkte pro Kante
 
     a = Startbereich(1); b = Startbereich(2);
@@ -81,9 +81,9 @@ function pol_vorhanden = Cauchysch(f, Startbereich, p)
     y_kontur = [b*ones(1,num_points), linspace(b, b+d, num_points), (b+d)*ones(1,num_points), linspace(b+d, b, num_points)];
     z_kontur = x_kontur + 1i * y_kontur;
 
-    dz = gradient(z_kontur);
+    dz = diff([z_kontur z_kontur(1)]);
     integrand = f(z_kontur) .* dz;
-    integral_wert = trapz(integrand);
+    integral_wert = sum(integrand);
 
     if abs(integral_wert) > Toleranz
         pol_vorhanden = true;
