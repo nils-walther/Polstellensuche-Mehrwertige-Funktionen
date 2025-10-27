@@ -1,54 +1,53 @@
 %% ============================   Main    =================================
-% ==        Polstellensuche mit rekursiver Eingrenzung und Newton        ==
+% ==        Polstellensuche mit rekursiver Eingrenzung und fsolve        ==
 % =========================================================================
 
-% Beispiele:
-% f = @(z) 1 ./ ((z - (1 + 1i)) .* (z - (-2 + 2i)));
-% g = @(z) (z - (1 + 1i)) .* (z - (-2 + 2i));
-% g_ableitung = @(z) 2*z + 1 - 3i;
+% --- Definitionen der Funktionen in der w-Ebene
+f_w = @(w) 1 ./ (w.^4 - 16);
+g_w = @(w) w.^4 - 16; % Nennerfunktion
 
-f_z = @(z) 1 ./ (sqrt(z) .* (z.^3 - 1));
-g_z = @(z) sqrt(z) .* (z.^3 - 1);
-g_ableitung_z = @(z) (z.^3 - 1) ./ (2 * sqrt(z)) + 3 * z.^2 .* sqrt(z);
-
-f_w = @(w) 1 ./ (w .* (w.^6 - 1));
-g_w = @(w) w .* (w.^6 - 1);
-g_ableitung_w = @(w) 7*w.^6 - 1;
-
-
+% --- Parameter für die Suche
 x_start = -5;
 y_start = -5;
 breite_start = 10;
 hoehe_start = 10;
-Genauigkeit_Eingrenzung = 1e-3; % Mindestgröße des Quadrats, bevor Newton startet
+Genauigkeit_Eingrenzung = 1e-3;
 
 Startbereich = [x_start, y_start, breite_start, hoehe_start];
-p = 0; % Starttiefe der Rekursion
+gefundene_pole_w = [];
 
 fprintf('Starte Polstellensuche...\n');
-Eingrenzung(f_w, g_w, g_ableitung_w, Startbereich, Genauigkeit_Eingrenzung, p); 
+gefundene_pole_w = Eingrenzung(f_w, g_w, Startbereich, Genauigkeit_Eingrenzung, 0, gefundene_pole_w); 
 fprintf('Suche beendet.\n');
 
 
-%% ------------------------------------------------------------------------
-% Eingrenzung (Rekursive Funktion)
-function Eingrenzung(f_w, g_w, g_ableitung_w, Bereich, Genauigkeit, p)
-    p = p + 1; % Rekursionstiefe erhöhen
+%% =======================   Lokale Funktionen   =========================
+% -------------------------------------------------------------------------
+function gefundene_pole_w = Eingrenzung(f_w, g_w, Bereich, Genauigkeit, p, gefundene_pole_w)
+    p = p + 1; % Rekursionsstufe
     
     pol_im_Bereich = Cauchysch(f_w, Bereich, p);
-    
+
     if pol_im_Bereich
         breite = Bereich(3);
         hoehe = Bereich(4);
         
-        % Prüfung Bereich klein genug für Newton
         if breite <= Genauigkeit || hoehe <= Genauigkeit
-            % Startpunkt für Newton (Mittelpunkt des kleinen Quadrats)
             x_mitte = Bereich(1) + breite/2;
             y_mitte = Bereich(2) + hoehe/2;
-            z_start_newton = x_mitte + 1i*y_mitte;
+            w_start = x_mitte + 1i*y_mitte;
             
-            Newton_Verfahren(g_w, g_ableitung_w, z_start_newton);
+            w_pole = finde_singularitaet_fsolve(g_w, w_start);
+            
+            toleranz_doppelt = 1e-4;
+            if isempty(gefundene_pole_w) || ~any(abs(gefundene_pole_w - w_pole) < toleranz_doppelt)
+                gefundene_pole_w = [gefundene_pole_w, w_pole]; % Zur Liste hinzufügen
+                z_pole = resubstitution(w_pole); % Resubstitution
+                
+                % Ausgabe
+                fprintf('Singularität in w-Ebene: %+.6f %+.6fi\n', real(w_pole), imag(w_pole));
+                fprintf('--> nach Resubstitution in z-Ebene: %+.6f %+.6fi\n\n', real(z_pole), imag(z_pole));
+            end
             return;
         end
         
@@ -57,73 +56,61 @@ function Eingrenzung(f_w, g_w, g_ableitung_w, Bereich, Genauigkeit, p)
         x = Bereich(1);
         y = Bereich(2);
 
+        ungenauigkeit = 1e-9;
         sub_Bereiche = [
-            x, y, halbe_breite, halbe_hoehe; % Unten links
-            x + halbe_breite, y, halbe_breite, halbe_hoehe; % Unten rechts
-            x, y + halbe_hoehe, halbe_breite, halbe_hoehe; % Oben links
+            x + ungenauigkeit, y + ungenauigkeit, halbe_breite, halbe_hoehe;  % Unten links
+            x + halbe_breite, y + ungenauigkeit, halbe_breite, halbe_hoehe;  % Unten rechts
+            x + ungenauigkeit, y + halbe_hoehe, halbe_breite, halbe_hoehe;  % Oben links
             x + halbe_breite, y + halbe_hoehe, halbe_breite, halbe_hoehe % Oben rechts
         ];
 
         for i = 1:4
-            Eingrenzung(f_w, g_w, g_ableitung_w, sub_Bereiche(i, :), Genauigkeit, p);
+            gefundene_pole_w = Eingrenzung(f_w, g_w, sub_Bereiche(i, :), Genauigkeit, p, gefundene_pole_w);
         end
     end
 end
 
 
-%% ------------------------------------------------------------------------
-% Cauchysch (Numerische Variante)
-function pol_vorhanden = Cauchysch(f, Startbereich, p)
-    if p <= 3; Toleranz = 1e-16; else; Toleranz = 1e-3; end
-    pol_vorhanden = false; 
-    num_points = 1000; % Anzahl der Punkte pro Kante
+% -------------------------------------------------------------------------
+function w_n = finde_singularitaet_fsolve(g_w_komplex, w_start_komplex)
+    fun = @(v) [real(g_w_komplex(v(1) + 1i*v(2))); 
+                imag(g_w_komplex(v(1) + 1i*v(2)))];
 
+    w_start_xy = [real(w_start_komplex), imag(w_start_komplex)];
+
+    options = optimoptions('fsolve', 'Display', 'none', 'FunctionTolerance', 1e-9); % Optionen (verhindert, dass fsolve seine eigene Ausgabe anzeigt)
+
+    w_n_xy = fsolve(fun, w_start_xy, options);
+
+    w_n = w_n_xy(1) + 1i * w_n_xy(2);
+end
+
+
+% -------------------------------------------------------------------------
+% Cauchysch (Numerische Variante des Cauchy-Integrals)
+function pol_vorhanden = Cauchysch(f, Startbereich, p)
+    if p <= 3; Toleranz = 1e-22; else; Toleranz = 1e-3; end
+    
+    num_points = 800; % Anzahl der Punkte pro Kante
     a = Startbereich(1); b = Startbereich(2);
     c = Startbereich(3); d = Startbereich(4);
 
-    x_kontur = [linspace(a, a+c, num_points), (a+c)*ones(1,num_points), linspace(a+c, a, num_points), a*ones(1,num_points)];
-    y_kontur = [b*ones(1,num_points), linspace(b, b+d, num_points), (b+d)*ones(1,num_points), linspace(b+d, b, num_points)];
+    % Konturweg definieren
+    weg1 = linspace(a, a+c, num_points);
+    weg2 = linspace(b, b+d, num_points);
+    x_kontur = [weg1, (a+c)*ones(1,num_points), fliplr(weg1), a*ones(1,num_points)];
+    y_kontur = [b*ones(1,num_points), weg2, (b+d)*ones(1,num_points), fliplr(weg2)];
     z_kontur = x_kontur + 1i * y_kontur;
 
+    % Numerische Integration
     dz = diff([z_kontur z_kontur(1)]);
-    integrand = f(z_kontur) .* dz;
-    integral_wert = sum(integrand);
+    integral_wert = sum(f(z_kontur) .* dz);
 
-    if abs(integral_wert) > Toleranz
-        pol_vorhanden = true;
-    end
+    pol_vorhanden = abs(integral_wert) > Toleranz;
 end
 
 
-%% ------------------------------------------------------------------------
-% Newton und Ausgabe
-function Newton_Verfahren(g_w, g_ableitung_w, z_start)
-    w_n = z_start;
-    Genauigkeit_Newton = 1e-9;
-    max_iterationen = 50; % Sicherheitsabbruch
-    iteration = 0;
-    
-    while (abs(g_w(w_n))) > Genauigkeit_Newton && iteration < max_iterationen
-        g_wert = g_w(w_n);
-        g_ableitung_wert = g_ableitung_w(w_n);
-        
-        if abs(g_ableitung_wert) < 1e-12
-            fprintf('Ableitung nahe Null, Newton bricht ab.\n');
-            break;
-        end
-        
-        w_n = w_n - (g_wert / g_ableitung_wert);
-        iteration = iteration + 1;
-    end
-
-    z_n = resubstitution(w_n);
-    
-    fprintf('Singularität in w-Ebene gefunden bei: %.6f + j(%.6f)\n', real(w_n), imag(w_n));
-    fprintf('Singularität nach Resubstitution in z-Ebene: %.6f + j(%.6f)\n', real(z_n), imag(z_n));
-end
-
-
-%% ------------------------------------------------------------------------
+% -------------------------------------------------------------------------
 % Resubstitution
 function z_pole = resubstitution(w_pole)
     z_pole = w_pole.^2;
