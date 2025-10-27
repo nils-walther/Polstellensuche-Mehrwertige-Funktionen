@@ -25,8 +25,12 @@ fprintf('Suche beendet.\n');
 % -------------------------------------------------------------------------
 function gefundene_pole_w = Eingrenzung(f_w, g_w, Bereich, Genauigkeit, p, gefundene_pole_w)
     p = p + 1; % Rekursionsstufe
-    
+
     pol_im_Bereich = Cauchysch(f_w, Bereich, p);
+
+    if p == 1
+        pol_im_Bereich = true; % Erste Teilung erzwingen. Verhindert, dass sich symmetrische Pole im Integral gegenseitig aufheben und so fälschlicherweise ein leeres Gebiet signalisieren.
+    end
 
     if pol_im_Bereich
         breite = Bereich(3);
@@ -89,7 +93,7 @@ end
 % -------------------------------------------------------------------------
 % Cauchysch (Numerische Variante des Cauchy-Integrals)
 function pol_vorhanden = Cauchysch(f, Startbereich, p)
-    if p <= 3; Toleranz = 1e-22; else; Toleranz = 1e-3; end
+    if p <= 3; Toleranz = 1e-19; else; Toleranz = 1e-3; end
     
     num_points = 800; % Anzahl der Punkte pro Kante
     a = Startbereich(1); b = Startbereich(2);
